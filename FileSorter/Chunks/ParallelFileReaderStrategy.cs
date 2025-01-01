@@ -33,29 +33,26 @@ public class ParallelFileReaderStrategy(
             numberOfChunks = fileSize / MaxChunkSize + 1;
         }
 
-        var chunkNames = new ConcurrentBag<string>();
-
-        Task<string> CreateSingleChunk(long chunkIndex)
+        async Task<string> CreateSingleChunk(long chunkIndex)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             var start = chunkIndex * chunkSize;
             var end = chunkIndex == numberOfChunks - 1 ? fileSize : start + chunkSize;
 
-            return ReadChunkAndSaveSorted(filePath, start, end, cancellationToken);
+            return await ReadChunkAndSaveSorted(filePath, start, end, cancellationToken);
         }
-
         try
         {
-            //var result = Parallel.For(0, numberOfChunks, parallelOptions, CreateSingleChunk);
             var tasks = Enumerable.Range(0, (int)numberOfChunks)
-                .Select(chunkIndex => CreateSingleChunk(chunkIndex)).ToList();
+                .Select(async chunkIndex => await CreateSingleChunk(chunkIndex))
+                .ToList();
 
-            await Task.WhenAll(tasks);
+            var results = await Task.WhenAll(tasks);
 
             Console.WriteLine("Operation finished.");
 
-            return tasks.Select(x=>x.Result).ToList();
+            return results.ToList();
         }
         catch (OperationCanceledException)
         {
