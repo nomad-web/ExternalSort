@@ -1,6 +1,7 @@
 ﻿namespace FileSorter.Chunks;
 
-public class SingleThreadReaderStrategy(IComparer<string?> comparer) : ChunkFilesStrategy(comparer)
+public class SingleThreadReaderStrategy(IComparer<string?> comparer) 
+    : ChunkFilesStrategy(comparer, DefaultMinChunkSize, DefaultMaxChunkSize)
 {
     public override async Task<List<string>> Execute(string inputFileName, CancellationToken cancellationToken)
     {
@@ -22,7 +23,7 @@ public class SingleThreadReaderStrategy(IComparer<string?> comparer) : ChunkFile
             currentSize += line.Length;
 
             // If chunk size exceeds the limit, sort and save the chunk
-            if (currentSize > ChunkSize)
+            if (currentSize > MaxChunkSize)
             {
                 chunkFiles.Add(await SaveSortedChunk(lines, cancellationToken));
                 lines = [];

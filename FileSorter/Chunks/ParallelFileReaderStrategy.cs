@@ -2,59 +2,60 @@ using System.Collections.Concurrent;
 
 namespace FileSorter.Chunks;
 
-public class ParallelFileReaderStrategy(IComparer<string?> comparer) : ChunkFilesStrategy(comparer)
+public class ParallelFileReaderStrategy(
+    IComparer<string?> comparer,
+    long minChunkSize = ChunkFilesStrategy.DefaultMinChunkSize,
+    long maxChunkSize = ChunkFilesStrategy.DefaultMaxChunkSize
+) : ChunkFilesStrategy(comparer, minChunkSize, maxChunkSize)
 {
-    private const int BufferSize = 4096;
+    private const int BufferSize = 16384;
 
     public override async Task<List<string>> Execute(string inputFileName, CancellationToken cancellationToken) =>
-        await CreateChunkedFilesAsync(inputFileName, Environment.ProcessorCount, cancellationToken); // Use max ProcessorCount
+        await CreateChunkedFilesAsync(inputFileName, Environment.ProcessorCount,
+            cancellationToken); // Use max ProcessorCount
 
-    private async Task<List<string>> CreateChunkedFilesAsync(string filePath, int numberOfThreads, CancellationToken cancellationToken)
+    private async Task<List<string>> CreateChunkedFilesAsync(string filePath, int numberOfThreads,
+        CancellationToken cancellationToken)
     {
         // Clean possible temporary files from previous failed runs
-        FileHelper.CleanTempFiles(); 
+        FileHelper.CleanTempFiles();
 
         var fileSize = new FileInfo(filePath).Length;
-        if (fileSize < MinFileSizePerChunk)
-            return [ReadChunkAndSaveSorted(filePath, 0, fileSize)];
- 
+        if (fileSize < MinChunkSize)
+            return [await ReadChunkAndSaveSorted(filePath, 0, fileSize, cancellationToken)];
+
         long numberOfChunks = numberOfThreads;
         var chunkSize = fileSize / numberOfThreads;
 
-        if (chunkSize > MaxSizePerChunkBytes)
+        if (chunkSize > MaxChunkSize)
         {
-            chunkSize = MaxSizePerChunkBytes;
-            numberOfChunks = fileSize / MaxSizePerChunkBytes + 1;
+            chunkSize = MaxChunkSize;
+            numberOfChunks = fileSize / MaxChunkSize + 1;
         }
 
         var chunkNames = new ConcurrentBag<string>();
 
-        var parallelOptions = new ParallelOptions
+        Task<string> CreateSingleChunk(long chunkIndex)
         {
-            CancellationToken = cancellationToken,
-            MaxDegreeOfParallelism = numberOfThreads 
-        };
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var start = chunkIndex * chunkSize;
+            var end = chunkIndex == numberOfChunks - 1 ? fileSize : start + chunkSize;
+
+            return ReadChunkAndSaveSorted(filePath, start, end, cancellationToken);
+        }
 
         try
         {
-            await Task.Run(() =>
-            {
-                Parallel.For(0, numberOfChunks, parallelOptions, chunkIndex =>
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
+            //var result = Parallel.For(0, numberOfChunks, parallelOptions, CreateSingleChunk);
+            var tasks = Enumerable.Range(0, (int)numberOfChunks)
+                .Select(chunkIndex => CreateSingleChunk(chunkIndex)).ToList();
 
-                    var start = chunkIndex * chunkSize;
-                    var end = chunkIndex == numberOfChunks - 1 ? fileSize : start + chunkSize;
-                    
-                    var chunkName = ReadChunkAndSaveSorted(filePath, start, end);
-                    chunkNames.Add(chunkName);
-                });
+            await Task.WhenAll(tasks);
 
-            }, cancellationToken);
-                
             Console.WriteLine("Operation finished.");
 
-            return chunkNames.ToList();
+            return tasks.Select(x=>x.Result).ToList();
         }
         catch (OperationCanceledException)
         {
@@ -68,12 +69,14 @@ public class ParallelFileReaderStrategy(IComparer<string?> comparer) : ChunkFile
         }
     }
 
-    private static List<string> ReadChunk(string filePath, long start, long end)
+    private static async Task<List<string>> ReadChunk(string filePath, long start, long end,
+        CancellationToken cancellationToken)
     {
         try
         {
             var lines = new List<string>();
-            using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize: BufferSize, useAsync: true);
+            await using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: BufferSize, useAsync: true);
             using var reader = new StreamReader(fileStream);
 
             // Seek to the start position
@@ -81,11 +84,11 @@ public class ParallelFileReaderStrategy(IComparer<string?> comparer) : ChunkFile
 
             // Adjust start to the next full line
             if (start > 0)
-                reader.ReadLine(); // Skip the partial line at the beginning
+                await reader.ReadLineAsync(cancellationToken); // Skip the partial line at the beginning
 
             while (fileStream.Position <= end)
             {
-                var line = reader.ReadLine();
+                var line = await reader.ReadLineAsync(cancellationToken);
                 if (line == null)
                     break; // End of file
                 lines.Add(line);
@@ -100,10 +103,11 @@ public class ParallelFileReaderStrategy(IComparer<string?> comparer) : ChunkFile
         }
     }
 
-    private string ReadChunkAndSaveSorted(string filePath, long start, long end)
+    private async Task<string> ReadChunkAndSaveSorted(string filePath, long start, long end,
+        CancellationToken cancellationToken)
     {
         // Read chunk and sort
-        var lines = ReadChunk(filePath, start, end);
+        var lines = await ReadChunk(filePath, start, end, cancellationToken);
         var sortedLines = lines.OrderBy(x => x, Comparer).ToList();
 
         var chunkName = $"{Path.GetTempFileName()}.cnk";

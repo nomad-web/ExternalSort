@@ -35,6 +35,8 @@ public class EndToEndTests
         var sourceLines = await File.ReadAllLinesAsync(SourceFileName, cts.Token);
         var outputLines = await File.ReadAllLinesAsync(OutputFileName, cts.Token);
         var missingLines = sourceLines.Except(outputLines);
+        var list = missingLines.ToList();
+        
         missingLines.Should().BeEmpty();
         
         missingLines = outputLines.Except(sourceLines);

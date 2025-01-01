@@ -10,8 +10,8 @@ public static class ExternalMergeSort
 
     private static readonly LineComparer Comparer = new();
 
-    //private static readonly ChunkFilesStrategy ChunkStrategy = new ParallelFileReaderStrategy(Comparer); // Select the fastest method, debugging required! 
-    private static readonly ChunkFilesStrategy ChunkStrategy = new SingleThreadReaderStrategy(Comparer); //single thread
+    private static readonly ChunkFilesStrategy ChunkStrategy = new ParallelFileReaderStrategy(Comparer); // Select the fastest method, debugging required! 
+    //private static readonly ChunkFilesStrategy ChunkStrategy = new SingleThreadReaderStrategy(Comparer); //single thread
 
     
     private static readonly MergeStrategy MergeStrategy = new MultiChunkMergeStrategy(Comparer); //single thread
