@@ -17,7 +17,6 @@
     <ItemGroup>
       <ProjectReference Include="..\FileGenerator\FileGenerator.csproj" />
       <ProjectReference Include="..\FileSorter\FileSorter.csproj" />
-      <ProjectReference Include="..\LargeFilesSorter\LargeFilesSorter.csproj" />
     </ItemGroup>
 
 </Project>
